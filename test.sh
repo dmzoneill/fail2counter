@@ -22,16 +22,19 @@ fi
 rm -rf "$CONFIG_DIR"
 mkdir -p "$CONFIG_DIR"
 cp "$TEST_DIR/.env" "$CONFIG_DIR/.env"
+chmod 644 "$CONFIG_DIR/.env"
 
 # Copy VPN config if it exists
 if [ -f "$TEST_DIR/vpn.ovpn" ]; then
     cp "$TEST_DIR/vpn.ovpn" "$CONFIG_DIR/vpn.ovpn"
+    chmod 644 "$CONFIG_DIR/vpn.ovpn"
 fi
 
 # Copy GCP credentials if referenced
 GCP_CREDS=$(grep "^GOOGLE_APPLICATION_CREDENTIALS=" "$CONFIG_DIR/.env" 2>/dev/null | cut -d= -f2 || true)
 if [ -n "$GCP_CREDS" ] && [ -f "$GCP_CREDS" ]; then
     cp "$GCP_CREDS" "$CONFIG_DIR/gcp-credentials.json"
+    chmod 644 "$CONFIG_DIR/gcp-credentials.json"
 fi
 
 # --- Build image ---

@@ -5,10 +5,12 @@ CONFIG_DIR="/etc/fail2counter"
 ENV_FILE="${CONFIG_DIR}/.env"
 
 # --- Load .env file ---
-if [ -f "$ENV_FILE" ]; then
+if [ -f "$ENV_FILE" ] && [ -r "$ENV_FILE" ]; then
     set -a
     source "$ENV_FILE"
     set +a
+else
+    echo "[WARNING] .env file not found or not readable at $ENV_FILE"
 fi
 
 # --- Validate required config ---
