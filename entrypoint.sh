@@ -33,10 +33,18 @@ export VPN_ROTATE_INTERVAL="${VPN_ROTATE_INTERVAL:-30}"
 
 # --- Start PostgreSQL ---
 echo "[*] Starting PostgreSQL..."
+
+# Set trust auth for local connections (container-only, no external exposure)
+PG_HBA=$(find /etc/postgresql -name pg_hba.conf 2>/dev/null | head -1)
+if [ -n "$PG_HBA" ]; then
+    sed -i 's/^local\s\+all\s\+all\s\+peer/local   all             all                                     trust/' "$PG_HBA"
+    sed -i 's/^local\s\+all\s\+postgres\s\+peer/local   all             postgres                                trust/' "$PG_HBA"
+fi
+
 pg_ctlcluster 15 main start 2>/dev/null || true
 sleep 2
 
-# Setup database (using postgres superuser via peer auth)
+# Setup database
 su - postgres -c "psql -tc \"SELECT 1 FROM pg_database WHERE datname = 'fail2counter'\" | grep -q 1 || createdb fail2counter" 2>/dev/null
 su - postgres -c "psql -d fail2counter -f /opt/fail2counter/schema.sql" 2>/dev/null
 echo "[*] PostgreSQL ready"
@@ -50,14 +58,14 @@ echo "[*] Redis ready"
 # --- Initialize Metasploit database ---
 if [ ! -f /opt/fail2counter/.msf_initialized ]; then
     echo "[*] Initializing Metasploit database (first run)..."
-    msfdb init 2>/dev/null || true
+    su - postgres -c "msfdb init" 2>/dev/null || true
     touch /opt/fail2counter/.msf_initialized
 fi
 
 # --- Setup VPN namespace if .ovpn provided ---
 if [ -f "${CONFIG_DIR}/vpn.ovpn" ]; then
     echo "[*] Setting up VPN namespace..."
-    /opt/fail2counter/vpn_namespace.sh start || echo "[WARNING] VPN setup failed, continuing without VPN"
+    /opt/fail2counter/vpn_namespace.sh start 2>&1 || echo "[WARNING] VPN setup failed, continuing without VPN"
 else
     echo "[*] No VPN config found, scanning without VPN"
 fi

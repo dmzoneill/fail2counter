@@ -15,12 +15,14 @@ NS_IP="10.200.1.2"
 start_namespace() {
     # Create namespace if it doesn't exist
     if ! ip netns list | grep -q "^${NS}"; then
+        # Mount /sys if needed for netns support in containers
+        mount -t sysfs sysfs /sys 2>/dev/null || true
         ip netns add "$NS"
         echo "[*] Created namespace $NS"
     fi
 
     # Bring up loopback in namespace
-    ip netns exec "$NS" ip link set lo up
+    ip netns exec "$NS" ip link set lo up 2>/dev/null || true
 
     # Create veth pair for DNS/connectivity to host
     if ! ip link show "$VETH_HOST" &>/dev/null; then

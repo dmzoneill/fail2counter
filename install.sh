@@ -108,8 +108,7 @@ After=network.target
 Type=simple
 ExecStart=/usr/bin/podman run --rm \\
     --name ${CONTAINER_NAME} \\
-    --cap-add NET_ADMIN \\
-    --cap-add SYS_ADMIN \\
+    --privileged \\
     --device /dev/net/tun \\
     -v ${INSTALL_DIR}:/etc/fail2counter:ro,z \\
     ${IMAGE_NAME}
