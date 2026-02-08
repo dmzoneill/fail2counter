@@ -1,0 +1,5 @@
+*.ovpn
+*.json
+fail2counter.conf
+__pycache__/
+*.pyc

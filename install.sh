@@ -1,0 +1,139 @@
+#!/bin/bash
+# fail2counter installer
+# Builds the container image and sets up the fail2ban integration
+
+set -euo pipefail
+
+INSTALL_DIR="/etc/fail2counter"
+IMAGE_NAME="fail2counter"
+CONTAINER_NAME="fail2counter"
+
+echo "=== fail2counter installer ==="
+echo ""
+
+# --- Check prerequisites ---
+command -v podman >/dev/null 2>&1 || { echo "ERROR: podman is required. Install with: apt install podman"; exit 1; }
+command -v fail2ban-client >/dev/null 2>&1 || { echo "ERROR: fail2ban is required. Install with: apt install fail2ban"; exit 1; }
+
+# --- Collect configuration ---
+echo "Configuration (3 items required):"
+echo ""
+
+read -rp "1. Notification email address: " EMAIL
+echo ""
+
+echo "2. AI Provider — choose one:"
+echo "   a) Anthropic API key (api.anthropic.com)"
+echo "   b) Google Vertex AI (GCP project)"
+read -rp "   Choice [a/b]: " AI_CHOICE
+
+API_KEY=""
+VERTEX_PROJECT=""
+VERTEX_REGION=""
+GCP_CREDS=""
+
+case "$AI_CHOICE" in
+    a|A)
+        read -rp "   Anthropic API key: " API_KEY
+        ;;
+    b|B)
+        read -rp "   GCP Project ID: " VERTEX_PROJECT
+        read -rp "   GCP Region [us-east5]: " VERTEX_REGION
+        VERTEX_REGION="${VERTEX_REGION:-us-east5}"
+        read -rp "   Path to GCP credentials JSON []: " GCP_CREDS
+        ;;
+    *)
+        echo "Invalid choice"; exit 1
+        ;;
+esac
+
+echo ""
+read -rp "3. Path to OpenVPN config file (.ovpn): " OVPN_PATH
+
+if [ ! -f "$OVPN_PATH" ]; then
+    echo "ERROR: File not found: $OVPN_PATH"
+    exit 1
+fi
+
+# --- Create config directory ---
+echo ""
+echo "[*] Creating configuration..."
+sudo mkdir -p "$INSTALL_DIR"
+
+# Write config file
+sudo tee "$INSTALL_DIR/fail2counter.conf" > /dev/null <<EOF
+# fail2counter configuration
+NOTIFICATION_EMAIL=${EMAIL}
+
+# AI Provider (auto-detects based on which is set)
+ANTHROPIC_API_KEY=${API_KEY}
+ANTHROPIC_VERTEX_PROJECT_ID=${VERTEX_PROJECT}
+ANTHROPIC_VERTEX_REGION=${VERTEX_REGION}
+GOOGLE_APPLICATION_CREDENTIALS=${GCP_CREDS:+/etc/fail2counter/gcp-credentials.json}
+EOF
+
+sudo chmod 600 "$INSTALL_DIR/fail2counter.conf"
+
+# Copy VPN config
+sudo cp "$OVPN_PATH" "$INSTALL_DIR/vpn.ovpn"
+sudo chmod 600 "$INSTALL_DIR/vpn.ovpn"
+
+# Copy GCP credentials if provided
+if [ -n "$GCP_CREDS" ] && [ -f "$GCP_CREDS" ]; then
+    sudo cp "$GCP_CREDS" "$INSTALL_DIR/gcp-credentials.json"
+    sudo chmod 600 "$INSTALL_DIR/gcp-credentials.json"
+fi
+
+# --- Build container image ---
+echo "[*] Building container image (this takes a few minutes)..."
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+podman build -t "$IMAGE_NAME" -f "$SCRIPT_DIR/Containerfile" "$SCRIPT_DIR"
+
+# --- Install fail2ban action ---
+echo "[*] Installing fail2ban action..."
+sudo tee /etc/fail2ban/action.d/fail2counter.conf > /dev/null <<'EOF'
+[Definition]
+actionstart =
+actionstop =
+actionban = podman exec fail2counter /opt/fail2counter/fail2counter_push_ip.py <ip>
+actionunban =
+EOF
+
+# --- Create systemd service ---
+echo "[*] Creating systemd service..."
+sudo tee /etc/systemd/system/fail2counter.service > /dev/null <<EOF
+[Unit]
+Description=fail2counter - AI-powered attacker analysis
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/podman run --rm \\
+    --name ${CONTAINER_NAME} \\
+    --cap-add NET_ADMIN \\
+    --cap-add SYS_ADMIN \\
+    --device /dev/net/tun \\
+    -v ${INSTALL_DIR}:/etc/fail2counter:ro \\
+    ${IMAGE_NAME}
+ExecStop=/usr/bin/podman stop ${CONTAINER_NAME}
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable fail2counter
+
+echo ""
+echo "=== Installation complete ==="
+echo ""
+echo "To start:  sudo systemctl start fail2counter"
+echo "To check:  sudo systemctl status fail2counter"
+echo "Logs:      sudo podman logs -f fail2counter"
+echo ""
+echo "Add 'fail2counter' action to your fail2ban jails:"
+echo "  action = iptables-multiport[...]"
+echo "           fail2counter"
+echo ""
