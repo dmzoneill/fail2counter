@@ -36,23 +36,61 @@ This tool is intended **exclusively** for:
 
 ## How It Works
 
-```
-Attacker hits your server
-  -> fail2ban bans the IP
-    -> fail2counter queues the IP (Redis)
-      -> Worker scans the attacker (nmap via VPN)
-        -> AI selects applicable Metasploit exploits
-          -> Executes exploits to identify vulnerabilities
-            -> Stores results in PostgreSQL
-              -> Sends email report
+```mermaid
+flowchart TD
+    A[Attacker hits your server] --> B[fail2ban detects & bans IP]
+    B --> C["podman exec: push_ip.py &lt;IP&gt;"]
+    C --> D[Redis queue: banned_ips]
+
+    subgraph Container ["Podman Container"]
+        D --> E[Worker dequeues IP]
+        E --> F{Host up?}
+        F -->|No| G[Skip]
+        F -->|Yes| H["nmap fast scan (top 100 ports)"]
+        H --> I{Open ports?}
+        I -->|No| G
+        I -->|Yes| J["nmap version detection"]
+        J --> K[Store scan results in PostgreSQL]
+        K --> L["Claude AI analyzes nmap output"]
+        L --> M["Filter 2500+ exploits to relevant subset"]
+        M --> N["Generate Metasploit RC files"]
+        N --> O["Execute exploits via msfconsole"]
+        O --> P[Store exploit results in PostgreSQL]
+        P --> Q{Session opened?}
+        Q -->|Yes| R[Create abuse notification record]
+        Q -->|No| S[Log as completed]
+        R --> T[Send email report]
+        S --> T
+        T --> U{30 scans done?}
+        U -->|Yes| V[Rotate VPN for new exit IP]
+        U -->|No| E
+        V --> E
+
+        subgraph VPN ["VPN Network Namespace (msf_vpn)"]
+            H
+            J
+            O
+        end
+
+        subgraph Services ["Internal Services"]
+            D
+            DB[(PostgreSQL)]
+            K --> DB
+            P --> DB
+        end
+    end
+
+    style VPN fill:#1a1a2e,color:#e0e0e0
+    style Container fill:#0d1117,color:#e0e0e0
+    style Services fill:#161b22,color:#e0e0e0
 ```
 
-All scanning and exploit traffic is routed through an OpenVPN tunnel in an isolated network namespace. Your server's real IP is never exposed.
+All scanning and exploit traffic is routed through an OpenVPN tunnel in an isolated network namespace. Your server's real IP is never exposed. The VPN rotates every 30 scans for IP diversity.
 
 ## Requirements
 
-- Linux host with podman and fail2ban installed
-- OpenVPN configuration file (.ovpn)
+- Linux host with `podman` and `fail2ban` installed
+- OpenVPN configuration file (.ovpn) from a VPN provider
 - Anthropic API key **or** Google Vertex AI credentials
 
 ## Installation
@@ -66,9 +104,13 @@ sudo ./install.sh
 The installer asks for 3 things:
 1. **Email address** for scan reports
 2. **AI provider** (Anthropic API key or GCP Vertex AI project)
-3. **OpenVPN config file** (.ovpn)
+3. **OpenVPN config file** (.ovpn) for scan traffic routing
 
-That's it. Everything else runs inside the container.
+Everything else is handled automatically:
+- Builds the container image with all dependencies
+- Copies and secures the VPN configuration
+- Creates the systemd service
+- Installs the fail2ban action
 
 ## Usage
 
@@ -99,6 +141,54 @@ action = iptables-multiport[name=sshd, port="ssh"]
 
 Restart fail2ban: `sudo systemctl restart fail2ban`
 
+## Architecture
+
+```mermaid
+graph LR
+    subgraph Host["Host System"]
+        F2B[fail2ban]
+        SMTP[Postfix/SMTP]
+    end
+
+    subgraph Pod["Podman Container"]
+        REDIS[(Redis)]
+        PG[(PostgreSQL)]
+        WORKER[Worker Daemon]
+        MSF[Metasploit]
+        NMAP[nmap]
+        AI[Claude AI]
+
+        subgraph NS["msf_vpn namespace"]
+            VPN[OpenVPN Tunnel]
+            NMAP
+            MSF
+        end
+    end
+
+    subgraph Ext["External"]
+        TARGET[Banned IP]
+        ANTHROPIC[Anthropic API]
+        VPNPROV[VPN Provider]
+    end
+
+    F2B -->|"podman exec push_ip.py"| REDIS
+    REDIS --> WORKER
+    WORKER --> NMAP
+    WORKER --> AI
+    AI --> ANTHROPIC
+    WORKER --> MSF
+    WORKER --> PG
+    WORKER -->|email report| SMTP
+    NMAP --> VPN
+    MSF --> VPN
+    VPN --> VPNPROV
+    VPNPROV --> TARGET
+
+    style NS fill:#1a1a2e,color:#e0e0e0
+    style Pod fill:#0d1117,color:#e0e0e0
+    style Host fill:#161b22,color:#e0e0e0
+```
+
 ## What's Inside the Container
 
 | Component | Purpose |
@@ -107,25 +197,75 @@ Restart fail2ban: `sudo systemctl restart fail2ban`
 | PostgreSQL | Stores scan results, exploit findings, notifications |
 | Metasploit Framework | Exploit execution engine |
 | nmap | Network scanning |
-| OpenVPN | VPN tunnel for scan traffic obscurity |
+| OpenVPN | VPN tunnel in isolated network namespace |
 | Claude AI | Selects applicable exploits based on scan results |
 
-## Architecture
+## Database Schema
 
-```
-Host system                          Container (podman)
-+-----------+                        +---------------------------+
-| fail2ban  |---push_ip.py---------->| Redis queue               |
-+-----------+                        |   |                       |
-                                     |   v                       |
-                                     | Worker daemon              |
-                                     |   |                       |
-                                     |   +-> nmap (via VPN)      |
-                                     |   +-> msfconsole (via VPN)|
-                                     |   +-> Claude AI           |
-                                     |   +-> PostgreSQL          |
-                                     |   +-> Email report        |
-                                     +---------------------------+
+```mermaid
+erDiagram
+    hosts ||--o{ scans : has
+    scans ||--o{ ports : has
+    ports ||--o{ services : has
+    scans ||--o{ exploits : tested_with
+    hosts ||--o{ exploits : targeted
+    exploits ||--o{ exploit_results : produces
+    hosts ||--o{ notifications : generates
+    exploits ||--o{ notifications : triggers
+
+    hosts {
+        int id PK
+        varchar ip_address
+        varchar hostname
+        timestamp created_at
+    }
+    scans {
+        int id PK
+        int host_id FK
+        timestamp scan_time
+        varchar scan_type
+        float latency_seconds
+        float duration_seconds
+    }
+    ports {
+        int id PK
+        int scan_id FK
+        int port_number
+        varchar protocol
+        varchar state
+    }
+    services {
+        int id PK
+        int port_id FK
+        varchar service_name
+        varchar product
+        varchar version
+        boolean is_ssl
+    }
+    exploits {
+        int id PK
+        int scan_id FK
+        int host_id FK
+        varchar module_path
+        varchar rhosts
+        int rport
+        varchar status
+    }
+    exploit_results {
+        int id PK
+        int exploit_id FK
+        text output_text
+        int exit_code
+        float duration_seconds
+    }
+    notifications {
+        int id PK
+        int host_id FK
+        int exploit_id FK
+        varchar notification_type
+        varchar status
+        text message
+    }
 ```
 
 ## Configuration
@@ -135,8 +275,14 @@ All config lives in `/etc/fail2counter/`:
 | File | Purpose |
 |------|---------|
 | `fail2counter.conf` | Main config (email, AI credentials) |
-| `vpn.ovpn` | OpenVPN configuration |
+| `vpn.ovpn` | OpenVPN configuration (copied during install) |
 | `gcp-credentials.json` | GCP service account key (Vertex AI only) |
+
+To change configuration after install, edit `/etc/fail2counter/fail2counter.conf` and restart:
+
+```bash
+sudo systemctl restart fail2counter
+```
 
 ## License
 
