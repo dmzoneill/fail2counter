@@ -111,7 +111,7 @@ ExecStart=/usr/bin/podman run --rm \\
     --cap-add NET_ADMIN \\
     --cap-add SYS_ADMIN \\
     --device /dev/net/tun \\
-    -v ${INSTALL_DIR}:/etc/fail2counter:ro \\
+    -v ${INSTALL_DIR}:/etc/fail2counter:ro,z \\
     ${IMAGE_NAME}
 ExecStop=/usr/bin/podman stop ${CONTAINER_NAME}
 Restart=always
