@@ -49,8 +49,7 @@ podman rm "$CONTAINER_NAME" 2>/dev/null || true
 echo "[*] Starting test container..."
 podman run -d \
     --name "$CONTAINER_NAME" \
-    --cap-add NET_ADMIN \
-    --cap-add SYS_ADMIN \
+    --privileged \
     --device /dev/net/tun \
     -v "$CONFIG_DIR:/etc/fail2counter:ro,z" \
     "$IMAGE_NAME"
