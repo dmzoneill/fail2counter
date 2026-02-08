@@ -12,7 +12,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     iptables \
     python3 python3-pip python3-venv \
     curl wget ca-certificates gnupg \
-    supervisor \
     procps \
     && rm -rf /var/lib/apt/lists/*
 
@@ -40,9 +39,6 @@ COPY app/refresh_exploits.sh /opt/fail2counter/
 COPY app/vpn_namespace.sh /opt/fail2counter/
 COPY app/exploits.txt /opt/fail2counter/
 RUN chmod +x /opt/fail2counter/*.py /opt/fail2counter/*.sh
-
-# Copy supervisor config
-COPY supervisord.conf /etc/supervisor/conf.d/fail2counter.conf
 
 # Copy entrypoint
 COPY entrypoint.sh /entrypoint.sh
