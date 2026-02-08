@@ -52,7 +52,7 @@ podman run -d \
     --cap-add NET_ADMIN \
     --cap-add SYS_ADMIN \
     --device /dev/net/tun \
-    -v "$CONFIG_DIR:/etc/fail2counter:ro" \
+    -v "$CONFIG_DIR:/etc/fail2counter:ro,z" \
     "$IMAGE_NAME"
 
 echo "[*] Waiting for services to start..."
