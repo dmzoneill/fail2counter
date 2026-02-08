@@ -28,13 +28,13 @@ MIN_EXPECTED_OUTPUT_BYTES = 500
 TMP_OUTPUT = "/tmp/nmap_result.txt"
 FASTSCAN_FILE = "/tmp/nmap_fastscan.txt"
 SCHEMA_FILE = "/opt/fail2counter/schema.sql"
-VPN_ROTATE_INTERVAL = 30  # rotate VPN every N scans
+VPN_ROTATE_INTERVAL = int(os.environ.get("VPN_ROTATE_INTERVAL", "30"))
 VPN_SCRIPT = "/opt/fail2counter/vpn_namespace.sh"
 NETNS = "msf_vpn"
 NETNS_CMD = ["ip", "netns", "exec", NETNS]
 PG_DSN = os.environ.get(
     "FAIL2COUNTER_DSN",
-    "host=/var/run/postgresql dbname=fail2counter user=fail2counter",
+    "host=/var/run/postgresql dbname=fail2counter user=postgres",
 )
 logs: List[str] = []
 scan_count = 0
@@ -194,12 +194,14 @@ def rotate_vpn():
 def send_email(subject: str, body: str, to_email=os.environ.get("NOTIFICATION_EMAIL", "root@localhost")):
     msg = EmailMessage()
     msg["Subject"] = subject
-    msg["From"] = "root@feeditout.com"
+    msg["From"] = os.environ.get("NOTIFICATION_FROM", "fail2counter@localhost")
     msg["To"] = to_email
     msg.set_content(body)
 
     try:
-        with smtplib.SMTP("localhost") as server:
+        smtp_host = os.environ.get("SMTP_HOST", "localhost")
+        smtp_port = int(os.environ.get("SMTP_PORT", "25"))
+        with smtplib.SMTP(smtp_host, smtp_port) as server:
             server.send_message(msg)
         capture(f"Email sent to {to_email}")
     except Exception as e:
@@ -215,12 +217,13 @@ capture(f"Exploit index ready: {len(exploit_index.modules)} modules")
 
 # --- Main loop ---
 
-if not REDIS_PASSWORD:
-    capture("REDIS_PASSWORD environment variable is not set", level="ERROR")
-    exit(2)
-
 try:
-    r = redis.Redis(host="localhost", port=6379, db=0, password=REDIS_PASSWORD)
+    r = redis.Redis(
+        host=os.environ.get("REDIS_HOST", "localhost"),
+        port=int(os.environ.get("REDIS_PORT", "6379")),
+        db=0,
+        password=REDIS_PASSWORD or None,
+    )
     r.ping()
     capture("Connected to Redis successfully.")
 except Exception as e:

@@ -274,15 +274,30 @@ All config lives in `/etc/fail2counter/`:
 
 | File | Purpose |
 |------|---------|
-| `fail2counter.conf` | Main config (email, AI credentials) |
+| `.env` | Main config (email, AI credentials, SMTP settings) |
 | `vpn.ovpn` | OpenVPN configuration (copied during install) |
 | `gcp-credentials.json` | GCP service account key (Vertex AI only) |
 
-To change configuration after install, edit `/etc/fail2counter/fail2counter.conf` and restart:
+See `.env.example` for all available options. To change configuration after install:
 
 ```bash
+sudo nano /etc/fail2counter/.env
 sudo systemctl restart fail2counter
 ```
+
+### Environment Variables
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `NOTIFICATION_EMAIL` | Yes | - | Email for scan reports |
+| `ANTHROPIC_API_KEY` | One of | - | Direct Anthropic API key |
+| `ANTHROPIC_VERTEX_PROJECT_ID` | these | - | GCP project for Vertex AI |
+| `ANTHROPIC_VERTEX_REGION` | No | `us-east5` | GCP region |
+| `GOOGLE_APPLICATION_CREDENTIALS` | No | - | Path to GCP key JSON |
+| `NOTIFICATION_FROM` | No | `fail2counter@localhost` | Email sender address |
+| `SMTP_HOST` | No | `localhost` | SMTP server |
+| `SMTP_PORT` | No | `25` | SMTP port |
+| `VPN_ROTATE_INTERVAL` | No | `30` | Rotate VPN every N scans |
 
 ## License
 
