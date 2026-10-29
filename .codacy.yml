@@ -1,0 +1,5 @@
+---
+engines:
+  tsqllint:
+    exclude_paths:
+      - 'app/schema.sql'  # PostgreSQL schema; TSQLLint is a T-SQL (SQL Server) linter

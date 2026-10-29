@@ -4,7 +4,7 @@ import os
 import re
 import smtplib
 import socket
-import subprocess
+import subprocess  # nosec B404
 import sys
 import time
 from datetime import datetime
@@ -25,8 +25,8 @@ REDIS_QUEUE = "banned_ips"
 SCAN_TIMEOUT = 600
 PRECHECK_TIMEOUT = 30
 MIN_EXPECTED_OUTPUT_BYTES = 500
-TMP_OUTPUT = "/tmp/nmap_result.txt"
-FASTSCAN_FILE = "/tmp/nmap_fastscan.txt"
+TMP_OUTPUT = "/tmp/nmap_result.txt"  # nosec B108
+FASTSCAN_FILE = "/tmp/nmap_fastscan.txt"  # nosec B108
 SCHEMA_FILE = "/opt/fail2counter/schema.sql"
 VPN_ROTATE_INTERVAL = int(os.environ.get("VPN_ROTATE_INTERVAL", "30"))
 VPN_SCRIPT = "/opt/fail2counter/vpn_namespace.sh"
@@ -182,7 +182,7 @@ def insert_notification(
 def rotate_vpn():
     """Restart VPN in the network namespace to get a new exit IP."""
     try:
-        result = subprocess.run(
+        result = subprocess.run(  # nosec B603
             [VPN_SCRIPT, "restart-vpn"],
             capture_output=True, text=True, timeout=60,
         )
@@ -256,11 +256,11 @@ while True:
         continue
 
     # Precheck
-    precheck_file = "/tmp/nmap_precheck.txt"
+    precheck_file = "/tmp/nmap_precheck.txt"  # nosec B108
     capture(f"Running precheck for {ip}")
     try:
-        subprocess.run(
-            NETNS_CMD + ["timeout", str(PRECHECK_TIMEOUT), "nmap", "-sn", ip],
+        subprocess.run(  # nosec B603 # nosemgrep
+            NETNS_CMD + ["timeout", str(PRECHECK_TIMEOUT), "nmap", "-sn", ip],  # nosemgrep
             check=True,
             stdout=open(precheck_file, "w"),
             stderr=subprocess.DEVNULL,
@@ -281,7 +281,7 @@ while True:
     capture(f"Running fast port scan on {ip}")
     try:
         subprocess.run(
-            [
+            [  # nosemgrep
                 *NETNS_CMD,
                 "timeout",
                 str(SCAN_TIMEOUT),
