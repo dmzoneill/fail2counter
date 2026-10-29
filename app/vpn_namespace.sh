@@ -76,7 +76,7 @@ start_vpn() {
         --verb 3
 
     # Wait for tunnel to come up
-    for i in $(seq 1 30); do
+    for _ in $(seq 1 30); do
         if ip netns exec "$NS" ip link show tun0 &>/dev/null; then
             VPN_IP=$(ip netns exec "$NS" ip -4 addr show tun0 | grep -oP 'inet \K[\d.]+')
             echo "[*] VPN tunnel up with IP: ${VPN_IP:-unknown}"

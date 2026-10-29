@@ -14,7 +14,7 @@ import logging
 import os
 import re
 import signal
-import subprocess
+import subprocess  # nosec B404
 import time
 from dataclasses import dataclass, field
 from typing import Callable, Optional
@@ -36,7 +36,7 @@ EXPLOITS_FILE = "/opt/fail2counter/exploits.txt"
 EXPLOITS_DETAIL_FILE = "/opt/fail2counter/metasploit_exploits_with_options.txt"
 MAX_PROMPT_CHARS = 80_000
 ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
-RC_DIR = "/tmp/fail2counter_rc"
+RC_DIR = "/tmp/fail2counter_rc"  # nosec B108
 MSF_TIMEOUT = 120
 MAX_TOTAL_EXPLOIT_TIME = 900  # 15 minutes per IP
 NETNS = "msf_vpn"
@@ -350,8 +350,8 @@ def run_msf(rc_path: str, timeout: int = MSF_TIMEOUT) -> tuple[str, int, float]:
 
     proc = None
     try:
-        proc = subprocess.Popen(
-            NETNS_CMD + ["/usr/bin/msfconsole", "-q", "-r", rc_path],
+        proc = subprocess.Popen(  # nosec B603 # nosemgrep
+            NETNS_CMD + ["/usr/bin/msfconsole", "-q", "-r", rc_path],  # nosemgrep
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
