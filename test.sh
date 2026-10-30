@@ -11,11 +11,11 @@ CONFIG_DIR="/tmp/fail2counter-test"
 
 # --- Check for .env ---
 if [[ ! -f "$TEST_DIR/.env" ]]; then
-    echo "No .env file found. Creating from .env.example..."
-    echo ""
-    echo "Edit .env with your API key, then re-run this script."
-    cp "$TEST_DIR/.env.example" "$TEST_DIR/.env"
-    exit 1
+	echo "No .env file found. Creating from .env.example..."
+	echo ""
+	echo "Edit .env with your API key, then re-run this script."
+	cp "$TEST_DIR/.env.example" "$TEST_DIR/.env"
+	exit 1
 fi
 
 # --- Setup temp config dir ---
@@ -26,15 +26,15 @@ chmod 644 "$CONFIG_DIR/.env"
 
 # Copy VPN config if it exists
 if [[ -f "$TEST_DIR/vpn.ovpn" ]]; then
-    cp "$TEST_DIR/vpn.ovpn" "$CONFIG_DIR/vpn.ovpn"
-    chmod 644 "$CONFIG_DIR/vpn.ovpn"
+	cp "$TEST_DIR/vpn.ovpn" "$CONFIG_DIR/vpn.ovpn"
+	chmod 644 "$CONFIG_DIR/vpn.ovpn"
 fi
 
 # Copy GCP credentials if referenced
 GCP_CREDS=$(grep "^GOOGLE_APPLICATION_CREDENTIALS=" "$CONFIG_DIR/.env" 2>/dev/null | cut -d= -f2 || true)
 if [[ -n "$GCP_CREDS" ]] && [[ -f "$GCP_CREDS" ]]; then
-    cp "$GCP_CREDS" "$CONFIG_DIR/gcp-credentials.json"
-    chmod 644 "$CONFIG_DIR/gcp-credentials.json"
+	cp "$GCP_CREDS" "$CONFIG_DIR/gcp-credentials.json"
+	chmod 644 "$CONFIG_DIR/gcp-credentials.json"
 fi
 
 # --- Build image ---
@@ -48,11 +48,11 @@ podman rm "$CONTAINER_NAME" 2>/dev/null || true
 # --- Run container ---
 echo "[*] Starting test container..."
 podman run -d \
-    --name "$CONTAINER_NAME" \
-    --privileged \
-    --device /dev/net/tun \
-    -v "$CONFIG_DIR:/etc/fail2counter:ro,z" \
-    "$IMAGE_NAME"
+	--name "$CONTAINER_NAME" \
+	--privileged \
+	--device /dev/net/tun \
+	-v "$CONFIG_DIR:/etc/fail2counter:ro,z" \
+	"$IMAGE_NAME"
 
 echo "[*] Waiting for services to start..."
 sleep 10
