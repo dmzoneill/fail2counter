@@ -62,7 +62,7 @@ start_vpn() {
     # Kill existing VPN if running
     stop_vpn
 
-    if [ ! -f "$VPN_CONFIG" ]; then
+    if [[ ! -f "$VPN_CONFIG" ]]; then
         echo "[ERROR] VPN config not found: $VPN_CONFIG"
         return 1
     fi
@@ -90,7 +90,7 @@ start_vpn() {
 }
 
 stop_vpn() {
-    if [ -f "$VPN_PID" ]; then
+    if [[ -f "$VPN_PID" ]]; then
         kill "$(cat "$VPN_PID")" 2>/dev/null || true
         rm -f "$VPN_PID"
         sleep 2
@@ -112,7 +112,7 @@ stop_namespace() {
 status() {
     if ip netns list | grep -q "^${NS}"; then
         echo "Namespace: UP"
-        if [ -f "$VPN_PID" ] && kill -0 "$(cat "$VPN_PID")" 2>/dev/null; then
+        if [[ -f "$VPN_PID" ]] && kill -0 "$(cat "$VPN_PID")" 2>/dev/null; then
             VPN_IP=$(ip netns exec "$NS" ip -4 addr show tun0 2>/dev/null | grep -oP 'inet \K[\d.]+' || echo "unknown")
             echo "VPN: UP (PID $(cat "$VPN_PID"), IP: $VPN_IP)"
         else

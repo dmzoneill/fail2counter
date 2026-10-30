@@ -50,7 +50,7 @@ esac
 echo ""
 read -rp "3. Path to OpenVPN config file (.ovpn): " OVPN_PATH
 
-if [ ! -f "$OVPN_PATH" ]; then
+if [[ ! -f "$OVPN_PATH" ]]; then
     echo "ERROR: File not found: $OVPN_PATH"
     exit 1
 fi
@@ -77,7 +77,7 @@ sudo cp "$OVPN_PATH" "$INSTALL_DIR/vpn.ovpn"
 sudo chmod 600 "$INSTALL_DIR/vpn.ovpn"
 
 # Copy GCP credentials if provided
-if [ -n "$GCP_CREDS" ] && [ -f "$GCP_CREDS" ]; then
+if [[ -n "$GCP_CREDS" ]] && [[ -f "$GCP_CREDS" ]]; then
     sudo cp "$GCP_CREDS" "$INSTALL_DIR/gcp-credentials.json"
     sudo chmod 600 "$INSTALL_DIR/gcp-credentials.json"
 fi
