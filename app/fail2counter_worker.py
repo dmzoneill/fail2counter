@@ -6,6 +6,7 @@ import smtplib
 import socket
 import subprocess  # nosec B404
 import sys
+import tempfile
 import time
 from datetime import datetime
 from email.message import EmailMessage
@@ -25,8 +26,11 @@ REDIS_QUEUE = "banned_ips"
 SCAN_TIMEOUT = 600
 PRECHECK_TIMEOUT = 30
 MIN_EXPECTED_OUTPUT_BYTES = 500
-TMP_OUTPUT = "/tmp/nmap_result.txt"  # nosec B108
-FASTSCAN_FILE = "/tmp/nmap_fastscan.txt"  # nosec B108
+# Private (0700) per-process directory for nmap output files
+WORK_DIR = tempfile.mkdtemp(prefix="fail2counter_")
+TMP_OUTPUT = os.path.join(WORK_DIR, "nmap_result.txt")
+FASTSCAN_FILE = os.path.join(WORK_DIR, "nmap_fastscan.txt")
+PRECHECK_FILE = os.path.join(WORK_DIR, "nmap_precheck.txt")
 SCHEMA_FILE = "/opt/fail2counter/schema.sql"
 VPN_ROTATE_INTERVAL = int(os.environ.get("VPN_ROTATE_INTERVAL", "30"))
 VPN_SCRIPT = "/opt/fail2counter/vpn_namespace.sh"
@@ -184,14 +188,20 @@ def rotate_vpn():
     try:
         result = subprocess.run(  # nosec B603
             [VPN_SCRIPT, "restart-vpn"],
-            capture_output=True, text=True, timeout=60,
+            capture_output=True,
+            text=True,
+            timeout=60,
         )
         capture(f"VPN rotated: {result.stdout.strip()}")
     except Exception as e:
         capture(f"VPN rotation failed: {e}", level="WARNING")
 
 
-def send_email(subject: str, body: str, to_email=os.environ.get("NOTIFICATION_EMAIL", "root@localhost")):
+def send_email(
+    subject: str,
+    body: str,
+    to_email=os.environ.get("NOTIFICATION_EMAIL", "root@localhost"),
+):
     msg = EmailMessage()
     msg["Subject"] = subject
     msg["From"] = os.environ.get("NOTIFICATION_FROM", "fail2counter@localhost")
@@ -256,11 +266,12 @@ while True:
         continue
 
     # Precheck
-    precheck_file = "/tmp/nmap_precheck.txt"  # nosec B108
+    precheck_file = PRECHECK_FILE
     capture(f"Running precheck for {ip}")
     try:
         subprocess.run(  # nosec B603 # nosemgrep
-            NETNS_CMD + ["timeout", str(PRECHECK_TIMEOUT), "nmap", "-sn", ip],  # nosemgrep
+            NETNS_CMD
+            + ["timeout", str(PRECHECK_TIMEOUT), "nmap", "-sn", ip],  # nosemgrep
             check=True,
             stdout=open(precheck_file, "w"),
             stderr=subprocess.DEVNULL,
@@ -369,7 +380,10 @@ while True:
     capture(f"[DB] About to insert host: {ip} (hostname: {hostname})", "DEBUG")
     host_id = insert_host(ip, hostname)
     capture(f"[DB] Inserted host with ID: {host_id}", "DEBUG")
-    capture(f"[DB] Connection autocommit: {conn.autocommit}, isolation_level: {conn.isolation_level}", "DEBUG")
+    capture(
+        f"[DB] Connection autocommit: {conn.autocommit}, isolation_level: {conn.isolation_level}",
+        "DEBUG",
+    )
 
     scan_type = "version"
     scan_time = datetime.utcnow()
@@ -438,7 +452,10 @@ while True:
             )
 
             for result in ai_results:
-                capture(f"[DB] Inserting exploit: {result['module_path']} for scan_id: {scan_id}", "DEBUG")
+                capture(
+                    f"[DB] Inserting exploit: {result['module_path']} for scan_id: {scan_id}",
+                    "DEBUG",
+                )
                 exploit_id = insert_exploit(
                     scan_id=scan_id,
                     host_id=host_id,
@@ -479,9 +496,7 @@ while True:
                         message=msg,
                     )
 
-            capture(
-                f"AI exploit analysis complete: {len(ai_results)} modules tested"
-            )
+            capture(f"AI exploit analysis complete: {len(ai_results)} modules tested")
 
         except Exception as e:
             capture(f"AI exploit analysis failed: {e}", level="ERROR")
@@ -500,6 +515,7 @@ while True:
         capture("[DB] Manual commit successful", "DEBUG")
     except Exception as e:
         import traceback
+
         capture(f"[DB] Manual commit failed: {e}", "ERROR")
         capture(f"[DB] Traceback:\n{traceback.format_exc()}", "ERROR")
 

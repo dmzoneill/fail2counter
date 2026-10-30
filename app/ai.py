@@ -15,6 +15,7 @@ import os
 import re
 import signal
 import subprocess  # nosec B404
+import tempfile
 import time
 from dataclasses import dataclass, field
 from typing import Callable, Optional
@@ -36,7 +37,8 @@ EXPLOITS_FILE = "/opt/fail2counter/exploits.txt"
 EXPLOITS_DETAIL_FILE = "/opt/fail2counter/metasploit_exploits_with_options.txt"
 MAX_PROMPT_CHARS = 80_000
 ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
-RC_DIR = "/tmp/fail2counter_rc"  # nosec B108
+# Private (0700) per-process directory for generated Metasploit resource files
+RC_DIR = tempfile.mkdtemp(prefix="fail2counter_rc_")
 MSF_TIMEOUT = 120
 MAX_TOTAL_EXPLOIT_TIME = 900  # 15 minutes per IP
 NETNS = "msf_vpn"
@@ -212,7 +214,9 @@ class ClaudeProvider:
         if os.environ.get("ANTHROPIC_VERTEX_PROJECT_ID"):
             project_id = os.environ["ANTHROPIC_VERTEX_PROJECT_ID"]
             region = os.environ.get("ANTHROPIC_VERTEX_REGION", "us-east5")
-            vertex_model = os.environ.get("ANTHROPIC_VERTEX_MODEL", "claude-sonnet-4@20250514")
+            vertex_model = os.environ.get(
+                "ANTHROPIC_VERTEX_MODEL", "claude-sonnet-4@20250514"
+            )
             self.client = AnthropicVertex(project_id=project_id, region=region)
             self.model = vertex_model
             logger.info("Using Vertex AI (project=%s, region=%s)", project_id, region)
@@ -220,7 +224,9 @@ class ClaudeProvider:
             self.client = Anthropic()
             logger.info("Using direct Anthropic API")
         else:
-            raise RuntimeError("No AI provider configured. Set ANTHROPIC_API_KEY or ANTHROPIC_VERTEX_PROJECT_ID")
+            raise RuntimeError(
+                "No AI provider configured. Set ANTHROPIC_API_KEY or ANTHROPIC_VERTEX_PROJECT_ID"
+            )
 
     def analyze_scan(self, system_prompt: str, nmap_output: str) -> str:
         """Send nmap output to Claude and get RC file suggestions."""
@@ -264,7 +270,9 @@ def parse_ai_response(response_text: str, ip: str) -> list[SuggestedExploit]:
         if line.lower().startswith("use "):
             if current_module:
                 exploits.append(_build_exploit(current_module, current_lines, ip))
-            module = line.split(None, 1)[1].strip() if len(line.split(None, 1)) > 1 else ""
+            module = (
+                line.split(None, 1)[1].strip() if len(line.split(None, 1)) > 1 else ""
+            )
             current_module = module
             current_lines = [line]
         elif current_module:
