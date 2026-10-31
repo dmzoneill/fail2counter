@@ -7,6 +7,7 @@ ENV_FILE="${CONFIG_DIR}/.env"
 # --- Load .env file ---
 if [[ -f "$ENV_FILE" ]] && [[ -r "$ENV_FILE" ]]; then
 	set -a
+	# shellcheck source=/dev/null
 	source "$ENV_FILE"
 	set +a
 else
