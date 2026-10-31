@@ -17,8 +17,10 @@ load_env_file() {
 		[[ "$line" != *=* ]] && continue
 		key="${line%%=*}"
 		value="${line#*=}"
-		value="${value%\"}"; value="${value#\"}"
-		value="${value%\'}"; value="${value#\'}"
+		value="${value%\"}"
+		value="${value#\"}"
+		value="${value%\'}"
+		value="${value#\'}"
 		export "$key=$value"
 	done <"$file"
 }
