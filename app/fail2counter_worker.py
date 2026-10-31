@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
+"""fail2counter worker: scan banned IPs from Redis, record results in PostgreSQL."""
 
+# pylint: disable=redefined-outer-name,broad-exception-caught,global-statement,invalid-name
+# pylint: disable=too-many-arguments,too-many-positional-arguments
+# ruff: noqa: BLE001, DTZ003
+
+import importlib
 import ipaddress
 import os
 import re
@@ -11,7 +17,6 @@ import tempfile
 import time
 from datetime import datetime
 from email.message import EmailMessage
-from typing import List
 
 import psycopg2
 import psycopg2.extras
@@ -19,7 +24,7 @@ import redis
 
 # Allow importing ai.py from the same directory
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import ai
+ai = importlib.import_module("ai")
 
 # CONFIG
 REDIS_PASSWORD = os.environ.get("REDIS_PASSWORD")
@@ -41,15 +46,17 @@ PG_DSN = os.environ.get(
     "FAIL2COUNTER_DSN",
     "host=/var/run/postgresql dbname=fail2counter user=postgres",
 )
-logs: List[str] = []
+logs: list[str] = []
 scan_count = 0
 
 
 def log(msg, level="INFO"):
+    """Print a timestamped log line."""
     print(f"[{datetime.utcnow().isoformat()}] [{level}] {msg}")
 
 
 def capture(msg, level="INFO"):
+    """Log a line and keep it for the per-scan report."""
     log(msg, level)
     logs.append(f"[{datetime.utcnow().isoformat()}] [{level}] {msg}")
 
@@ -58,7 +65,7 @@ def get_db():
     """Get or reconnect PostgreSQL connection."""
     global conn, cursor
     try:
-        conn.isolation_level
+        _ = conn.isolation_level
     except Exception:
         conn = psycopg2.connect(PG_DSN)
         conn.autocommit = True
@@ -76,7 +83,7 @@ def init_schema():
     if not os.path.exists(SCHEMA_FILE):
         log("schema.sql not found, skipping schema init", "WARNING")
         return
-    with open(SCHEMA_FILE) as f:
+    with open(SCHEMA_FILE, encoding="utf-8") as f:
         sql = f.read()
     cursor.execute(sql)
     log("Database schema initialized")
@@ -88,7 +95,8 @@ init_schema()
 # --- Insert functions ---
 
 
-def insert_host(ip: str, hostname: str) -> int:
+def insert_host(ip: str, hostname: str | None) -> int:
+    """Insert or update a host row and return its id."""
     cursor.execute("SELECT id FROM hosts WHERE ip_address = %s", (ip,))
     row = cursor.fetchone()
     if row:
@@ -100,17 +108,18 @@ def insert_host(ip: str, hostname: str) -> int:
     return cursor.fetchone()["id"]
 
 
-def insert_scan(
-    host_id: int, scan_type: str, start_time: datetime, latency: float, duration: float
-) -> int:
+def insert_scan(host_id: int, scan_type: str, start_time: datetime, latency: float, duration: float) -> int:
+    """Insert a scan row and return its id."""
     cursor.execute(
-        "INSERT INTO scans (host_id, scan_time, scan_type, latency_seconds, duration_seconds) VALUES (%s, %s, %s, %s, %s) RETURNING id",
+        "INSERT INTO scans (host_id, scan_time, scan_type, latency_seconds, duration_seconds) "
+        "VALUES (%s, %s, %s, %s, %s) RETURNING id",
         (host_id, start_time, scan_type, latency, duration),
     )
     return cursor.fetchone()["id"]
 
 
 def insert_port(scan_id: int, port: int, protocol: str, state: str) -> int:
+    """Insert a port row and return its id."""
     cursor.execute(
         "INSERT INTO ports (scan_id, port_number, protocol, state) VALUES (%s, %s, %s, %s) RETURNING id",
         (scan_id, port, protocol, state),
@@ -121,13 +130,15 @@ def insert_port(scan_id: int, port: int, protocol: str, state: str) -> int:
 def insert_service(
     port_id: int,
     service_name: str,
-    product: str = None,
-    version: str = None,
+    product: str | None = None,
+    version: str | None = None,
     is_ssl=False,
     recognized=True,
 ):
+    """Insert a service row and return its id."""
     cursor.execute(
-        "INSERT INTO services (port_id, service_name, product, version, is_ssl, recognized) VALUES (%s, %s, %s, %s, %s, %s)",
+        "INSERT INTO services (port_id, service_name, product, version, is_ssl, recognized) "
+        "VALUES (%s, %s, %s, %s, %s, %s)",
         (port_id, service_name, product, version, is_ssl, recognized),
     )
 
@@ -144,6 +155,7 @@ def insert_exploit(
     rc_path: str,
     status: str = "suggested",
 ) -> int:
+    """Insert an exploit row and return its id."""
     cursor.execute(
         """INSERT INTO exploits
            (scan_id, host_id, module_path, rhosts, rport, rc_file_path, status)
@@ -153,9 +165,8 @@ def insert_exploit(
     return cursor.fetchone()["id"]
 
 
-def insert_exploit_result(
-    exploit_id: int, output_text: str, exit_code: int, duration: float
-) -> int:
+def insert_exploit_result(exploit_id: int, output_text: str, exit_code: int, duration: float) -> int:
+    """Insert an exploit result row and return its id."""
     cursor.execute(
         """INSERT INTO exploit_results
            (exploit_id, output_text, exit_code, duration_seconds)
@@ -169,9 +180,10 @@ def insert_notification(
     host_id: int,
     exploit_id: int,
     notification_type: str = "email",
-    contact_info: str = None,
-    message: str = None,
+    contact_info: str | None = None,
+    message: str | None = None,
 ) -> int:
+    """Insert a notification row and return its id."""
     cursor.execute(
         """INSERT INTO notifications
            (host_id, exploit_id, notification_type, status, contact_info, message)
@@ -194,14 +206,12 @@ def validate_ip(value: str) -> str:
 
 def validate_ports(value: str) -> str:
     """Return a comma separated port list, or raise ValueError."""
-    if not PORT_LIST_RE.match(value) or any(
-        not 0 < int(p) < 65536 for p in value.split(",")
-    ):
+    if not PORT_LIST_RE.match(value) or any(not 0 < int(p) < 65536 for p in value.split(",")):
         raise ValueError(f"Invalid port list: {value!r}")
     return value
 
 
-def run_nmap(nmap_args: List[str], timeout: int, **kwargs):
+def run_nmap(nmap_args: list[str], timeout: int, **kwargs):
     """Run nmap inside the VPN network namespace with a hard timeout.
 
     Every caller passes arguments that were validated with ``validate_ip``
@@ -219,6 +229,7 @@ def rotate_vpn():
             capture_output=True,
             text=True,
             timeout=60,
+            check=False,
         )
         capture(f"VPN rotated: {result.stdout.strip()}")
     except Exception as e:
@@ -228,8 +239,11 @@ def rotate_vpn():
 def send_email(
     subject: str,
     body: str,
-    to_email=os.environ.get("NOTIFICATION_EMAIL", "root@localhost"),
+    to_email: str | None = None,
 ):
+    """Send a notification email via the local SMTP server."""
+    if to_email is None:
+        to_email = os.environ.get("NOTIFICATION_EMAIL", "root@localhost")
     msg = EmailMessage()
     msg["Subject"] = subject
     msg["From"] = os.environ.get("NOTIFICATION_FROM", "fail2counter@localhost")
@@ -266,7 +280,7 @@ try:
     capture("Connected to Redis successfully.")
 except Exception as e:
     capture(f"Failed to connect to Redis: {e}", level="ERROR")
-    exit(3)
+    sys.exit(3)
 
 while True:
     # Reconnect DB if needed
@@ -298,14 +312,14 @@ while True:
     precheck_file = PRECHECK_FILE
     capture(f"Running precheck for {ip}")
     try:
-        with open(precheck_file, "w") as precheck_out:
+        with open(precheck_file, "w", encoding="utf-8") as precheck_out:
             run_nmap(
                 ["-sn", ip],
                 PRECHECK_TIMEOUT,
                 stdout=precheck_out,
                 stderr=subprocess.DEVNULL,
             )
-        with open(precheck_file) as f:
+        with open(precheck_file, encoding="utf-8") as f:
             lines = f.read()
             capture(lines, "INFO")
             if "Host seems down" in lines:
@@ -326,7 +340,7 @@ while True:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
-        with open(FASTSCAN_FILE) as f:
+        with open(FASTSCAN_FILE, encoding="utf-8") as f:
             lines = f.read()
             capture(lines, "INFO")
             grepable = lines
@@ -346,7 +360,7 @@ while True:
     # Version scan
     capture(f"Running service version detection for {ip}")
     try:
-        with open(TMP_OUTPUT, "w") as out:
+        with open(TMP_OUTPUT, "w", encoding="utf-8") as out:
             run_nmap(
                 [
                     "-sV",
@@ -372,7 +386,7 @@ while True:
         capture(f"Nmap scan failed or timed out for {ip}", level="WARNING")
 
     try:
-        with open(TMP_OUTPUT) as f:
+        with open(TMP_OUTPUT, encoding="utf-8") as f:
             nmap_output = f.read()
             capture(nmap_output, "DEBUG")
         if len(nmap_output) < MIN_EXPECTED_OUTPUT_BYTES:
@@ -386,6 +400,7 @@ while True:
         continue
 
     # Resolve hostname
+    hostname: str | None
     try:
         hostname = socket.gethostbyaddr(ip)[0]
     except socket.herror:
@@ -409,9 +424,7 @@ while True:
     duration = float(duration_match.group(1)) if duration_match else None
 
     capture(f"[DB] About to insert scan for host_id: {host_id}", "DEBUG")
-    scan_id = insert_scan(
-        host_id, scan_type, scan_time, latency or 0.0, duration or 0.0
-    )
+    scan_id = insert_scan(host_id, scan_type, scan_time, latency or 0.0, duration or 0.0)
     capture(f"[DB] Inserted scan with ID: {scan_id}", "DEBUG")
 
     # Parse open ports and service details
@@ -436,9 +449,7 @@ while True:
         capture(f"[DB] Inserting port {port} for scan_id: {scan_id}", "DEBUG")
         port_id = insert_port(scan_id, port, "tcp", "open")
         capture(f"[DB] Inserted port with ID: {port_id}", "DEBUG")
-        insert_service(
-            port_id, clean_service_name, product, version, is_ssl, recognized
-        )
+        insert_service(port_id, clean_service_name, product, version, is_ssl, recognized)
         capture(f"[DB] Inserted service for port_id: {port_id}", "DEBUG")
 
         detected_services.append(
