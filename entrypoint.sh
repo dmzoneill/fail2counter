@@ -5,11 +5,28 @@ CONFIG_DIR="/etc/fail2counter"
 ENV_FILE="${CONFIG_DIR}/.env"
 
 # --- Load .env file ---
+load_env_file() {
+	# Load KEY=VALUE pairs from a .env file without sourcing it, so ShellCheck
+	# has no dynamic `source` to follow (previously suppressed with SC1090).
+	# Comment (#) and blank lines are skipped; surrounding quotes are stripped.
+	local file="$1" line key value
+	while IFS= read -r line || [[ -n "$line" ]]; do
+		line="${line#"${line%%[![:space:]]*}"}"
+		[[ -z "$line" || "$line" == \#* ]] && continue
+		[[ "$line" == export\ * ]] && line="${line#export }"
+		[[ "$line" != *=* ]] && continue
+		key="${line%%=*}"
+		value="${line#*=}"
+		value="${value%\"}"
+		value="${value#\"}"
+		value="${value%\'}"
+		value="${value#\'}"
+		export "$key=$value"
+	done <"$file"
+}
+
 if [[ -f "$ENV_FILE" ]] && [[ -r "$ENV_FILE" ]]; then
-	set -a
-	# shellcheck source=/dev/null
-	source "$ENV_FILE"
-	set +a
+	load_env_file "$ENV_FILE"
 else
 	echo "[WARNING] .env file not found or not readable at $ENV_FILE"
 fi
