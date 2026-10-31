@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import ipaddress
 import os
 import re
 import smtplib
@@ -183,6 +184,33 @@ def insert_notification(
 # --- Utility functions ---
 
 
+PORT_LIST_RE = re.compile(r"^\d{1,5}(,\d{1,5})*$")
+
+
+def validate_ip(value: str) -> str:
+    """Return ``value`` normalised as an IP address, or raise ValueError."""
+    return str(ipaddress.ip_address(value.strip()))
+
+
+def validate_ports(value: str) -> str:
+    """Return a comma separated port list, or raise ValueError."""
+    if not PORT_LIST_RE.match(value) or any(
+        not 0 < int(p) < 65536 for p in value.split(",")
+    ):
+        raise ValueError(f"Invalid port list: {value!r}")
+    return value
+
+
+def run_nmap(nmap_args: List[str], timeout: int, **kwargs):
+    """Run nmap inside the VPN network namespace with a hard timeout.
+
+    Every caller passes arguments that were validated with ``validate_ip``
+    or ``validate_ports``; the command is an argument list, never a shell.
+    """
+    cmd = [*NETNS_CMD, "timeout", str(timeout), "nmap", *nmap_args]
+    return subprocess.run(cmd, check=True, **kwargs)  # nosec B603 # nosemgrep
+
+
 def rotate_vpn():
     """Restart VPN in the network namespace to get a new exit IP."""
     try:
@@ -258,7 +286,8 @@ while True:
         continue
 
     try:
-        timestamp, ip = ip_entry.decode().split("|")
+        timestamp, raw_ip = ip_entry.decode().split("|")
+        ip = validate_ip(raw_ip)
         capture(f"Dequeued IP: {ip} (banned at {timestamp})")
     except Exception as e:
         capture(f"Failed to parse Redis queue entry: {ip_entry} - {e}", level="ERROR")
@@ -269,13 +298,13 @@ while True:
     precheck_file = PRECHECK_FILE
     capture(f"Running precheck for {ip}")
     try:
-        subprocess.run(  # nosec B603 # nosemgrep
-            NETNS_CMD
-            + ["timeout", str(PRECHECK_TIMEOUT), "nmap", "-sn", ip],  # nosemgrep
-            check=True,
-            stdout=open(precheck_file, "w"),
-            stderr=subprocess.DEVNULL,
-        )
+        with open(precheck_file, "w") as precheck_out:
+            run_nmap(
+                ["-sn", ip],
+                PRECHECK_TIMEOUT,
+                stdout=precheck_out,
+                stderr=subprocess.DEVNULL,
+            )
         with open(precheck_file) as f:
             lines = f.read()
             capture(lines, "INFO")
@@ -291,20 +320,9 @@ while True:
     # Fast scan
     capture(f"Running fast port scan on {ip}")
     try:
-        subprocess.run(
-            [  # nosemgrep
-                *NETNS_CMD,
-                "timeout",
-                str(SCAN_TIMEOUT),
-                "nmap",
-                "-T4",
-                "-F",
-                "-oG",
-                FASTSCAN_FILE,
-                "-v",
-                ip,
-            ],
-            check=True,
+        run_nmap(
+            ["-T4", "-F", "-oG", FASTSCAN_FILE, "-v", ip],
+            SCAN_TIMEOUT,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
@@ -314,7 +332,7 @@ while True:
             grepable = lines
         matches = re.findall(r"(\d+)/open", grepable)
         capture(matches, "DEBUG")
-        ports = ",".join(matches)
+        ports = validate_ports(",".join(matches)) if matches else ""
         if not ports:
             capture(f"No open ports found on {ip}", level="WARNING")
             logs = []
@@ -329,12 +347,8 @@ while True:
     capture(f"Running service version detection for {ip}")
     try:
         with open(TMP_OUTPUT, "w") as out:
-            subprocess.run(
+            run_nmap(
                 [
-                    *NETNS_CMD,
-                    "timeout",
-                    str(SCAN_TIMEOUT),
-                    "nmap",
                     "-sV",
                     "--version-light",
                     "--max-retries",
@@ -349,7 +363,7 @@ while True:
                     "-v",
                     ip,
                 ],
-                check=True,
+                SCAN_TIMEOUT,
                 stdout=out,
                 stderr=out,
             )
